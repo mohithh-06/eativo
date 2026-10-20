@@ -1,6 +1,10 @@
 import { clearAuthSession, getAuthToken } from './auth';
 
-const fallbackBaseUrl = 'http://localhost:8080';
+// Local development uses the Spring Boot server directly. In production, use
+// same-origin /api requests so the Vercel rewrite can proxy them to BACKEND_URL.
+// CRA replaces NODE_ENV at build time, so this decision is stable in the bundle.
+const fallbackBaseUrl =
+  process.env.NODE_ENV === 'production' ? '' : 'http://localhost:8080';
 const configuredBaseUrl = process.env.REACT_APP_API_BASE_URL;
 
 const resolveApiBaseUrl = () => {
