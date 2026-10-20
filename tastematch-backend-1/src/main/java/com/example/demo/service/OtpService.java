@@ -9,21 +9,18 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import com.example.demo.dto.OtpRequest;
-import com.sendgrid.Method;
-import com.sendgrid.Request;
-import com.sendgrid.Response;
-import com.sendgrid.SendGrid;
-import com.sendgrid.helpers.mail.Mail;
-import com.sendgrid.helpers.mail.objects.Content;
-import com.sendgrid.helpers.mail.objects.Email;
+import com.resend.Resend;
+import com.resend.core.exception.ResendException;
+import com.resend.services.emails.model.CreateEmailOptions;
+import com.resend.services.emails.model.CreateEmailResponse;
 
 @Service
 public class OtpService {
 
-    @Value("${app.sendgrid.api-key:}")
-    private String sendGridApiKey;
+    @Value("${app.resend.api-key:}")
+    private String resendApiKey;
 
-    @Value("${app.sendgrid.from-email:no-reply@eativo.com}")
+    @Value("${app.resend.from-email:onboarding@resend.dev}")
     private String fromEmail;
 
     private final SecureRandom secureRandom = new SecureRandom();
@@ -64,8 +61,11 @@ public class OtpService {
         return otpCode;
     }
 
-    @org.springframework.scheduling.annotation.Async
     public void sendOtpEmail(String email, String otpCode) {
+        if (resendApiKey == null || resendApiKey.isBlank()) {
+            throw new IllegalStateException("Email delivery is not configured. Set RESEND_API_KEY in the backend environment.");
+        }
+
         String subject = "Your Eativo Verification Code";
         String text = "Welcome to Eativo!\n\n"
                 + "Your 6-digit verification code is: " + otpCode + "\n\n"
@@ -73,41 +73,21 @@ public class OtpService {
                 + "Happy Dining,\n"
                 + "The Eativo Team";
 
-        if (sendGridApiKey == null || sendGridApiKey.trim().isEmpty()) {
-            System.err.println("WARNING: SENDGRID_API_KEY is not configured. Fallback: Logging OTP to console.");
-        } else {
-            try {
-                Email from = new Email(fromEmail);
-                Email to = new Email(email);
-                Content content = new Content("text/plain", text);
-                Mail mail = new Mail(from, subject, to, content);
+        try {
+            Resend resend = new Resend(resendApiKey);
+            CreateEmailOptions options = CreateEmailOptions.builder()
+                    .from(fromEmail)
+                    .to(email)
+                    .subject(subject)
+                    .text(text)
+                    .build();
 
-                SendGrid sg = new SendGrid(sendGridApiKey);
-                Request request = new Request();
-                request.setMethod(Method.POST);
-                request.setEndpoint("mail/send");
-                request.setBody(mail.build());
-                Response response = sg.api(request);
-                
-                System.out.println("SendGrid Email Status: " + response.getStatusCode());
-                if (response.getStatusCode() >= 200 && response.getStatusCode() < 300) {
-                    System.out.println("OTP email sent successfully to: " + email);
-                } else {
-                    System.err.println("WARNING: SendGrid API returned non-success status: " + response.getStatusCode());
-                    System.err.println("Response Body: " + response.getBody());
-                }
-            } catch (Exception e) {
-                System.err.println("WARNING: Could not send real email via SendGrid. Fallback: Logging OTP to console.");
-                System.err.println("Email Error details: " + e.getMessage());
-            }
+            CreateEmailResponse response = resend.emails().send(options);
+            System.out.println("Eativo verification email accepted by Resend. Email ID: " + response.getId());
+        } catch (ResendException | RuntimeException e) {
+            System.err.println("Failed to send Eativo verification email through Resend: " + e.getMessage());
+            throw new IllegalStateException("Could not send verification email. Please try again later.", e);
         }
-
-
-        System.out.println("==================================================");
-        System.out.println("   [EATIVO SECURITY LOG] OTP CODE GENERATED");
-        System.out.println("   Email: " + email);
-        System.out.println("   Code:  " + otpCode);
-        System.out.println("==================================================");
     }
 
     public PendingRegistration getPendingRegistration(String email) {
